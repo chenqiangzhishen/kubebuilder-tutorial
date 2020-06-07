@@ -34,6 +34,8 @@ spec:
         spec:
           description: FrigateSpec defines the desired state of Frigate
           properties:
+            demo:
+              type: string
             foo:
               description: Foo is an example field of Frigate. Edit Frigate_types.go
                 to remove/update
@@ -41,6 +43,12 @@ spec:
           type: object
         status:
           description: FrigateStatus defines the observed state of Frigate
+          properties:
+            created:
+              description: 'INSERT ADDITIONAL STATUS FIELD - define observed state
+                of cluster Important: Run "make" to regenerate code after modifying
+                this file'
+              type: boolean
           type: object
       type: object
   version: v1beta1

@@ -38,11 +38,21 @@ type FrigateReconciler struct {
 // +kubebuilder:rbac:groups=ship.example.com,resources=frigates/status,verbs=get;update;patch
 
 func (r *FrigateReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
-	_ = context.Background()
+	ctx := context.Background()
 	_ = r.Log.WithValues("frigate", req.NamespacedName)
 
 	// your logic here
-
+	frigate := &shipv1beta1.Frigate{}
+	if err := r.Get(ctx, req.NamespacedName, frigate); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	} else {
+		r.Log.V(1).Info("Get demo successfully", "Demo", frigate.Spec.Demo)
+		r.Log.V(1).Info("", "Created", frigate.Status.Created)
+	}
+	if !frigate.Status.Created {
+		frigate.Status.Created = true
+		_ = r.Update(ctx, frigate)
+	}
 	return ctrl.Result{}, nil
 }
 
