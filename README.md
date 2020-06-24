@@ -2,92 +2,115 @@ Table of Contents
 =================
 
 * [一、背景](#一背景)
-* [二、环境准备](#二环境准备)
-  * [1、Golang 环境搭建](#1golang-环境搭建)
-     * [1.1 Golang语言版本](#11-golang语言版本)
-     * [1.2 Golang环境配置](#12-golang环境配置)
-  * [2、CRD Controller 开发环境搭建](#2crd-controller-开发环境搭建)
-     * [2.1、使用时的一些注意事项](#21使用时的一些注意事项)
-  * [3、CRD Controller的开发逻辑](#3crd-controller的开发逻辑)
-  * [4、CRD controller的测试与部署](#4crd-controller的测试与部署)
+* [二、环境准备及基本开发流程](#二环境准备及基本开发流程)
+    * [1、Golang 环境搭建](#1golang-环境搭建)
+        * [1.1 Golang 语言版本](#11-golang-语言版本)
+        * [1.2 Golang 环境配置](#12-golang-环境配置)
+    * [2、CRD Controller 开发环境搭建](#2crd-controller-开发环境搭建)
+        * [2.1、使用时的一些注意事项](#21使用时的一些注意事项)
+    * [3、CRD Controller的开发逻辑](#3crd-controller的开发逻辑)
+    * [4、CRD controller的测试与部署](#4crd-controller的测试与部署)
 * [三、演示](#三演示)
-  * [3.1 构架代码生成](#31-构架代码生成)
-     * [3.1.1 采用 GOPATH 来生成](#311-采用-gopath-来生成)
-     * [3.1.2 采用 go mod 来生成](#312-采用-go-mod-来生成)
-  * [3.2 验证生成的代码](#32-验证生成的代码)
-     * [3.2.1 查看一下集群状态，确保可访问 k8s 集群](#321-查看一下集群状态确保可访问-k8s-集群)
-     * [3.2.2 创建CRD](#322-创建crd)
-     * [3.2.3 安装CRD](#323-安装crd)
-     * [3.2.4 启动控制器](#324-启动控制器)
-  * [3.3 添加编写自定义代码逻辑](#33-添加编写自定义代码逻辑)
-  * [3.4 构建 docker 镜像并发布到 docker registry 中](#34-构建-docker-镜像并发布到-docker-registry-中)
-  * [3.5 部署镜像到集群](#35-部署镜像到集群)
-  * [3.6 删除 CRD](#36-删除-crd)
+    * [3.1 构架代码生成](#31-构架代码生成)
+        * [3.1.1 采用 GOPATH 来生成](#311-采用-gopath-来生成)
+        * [3.1.2 采用 go mod 来生成](#312-采用-go-mod-来生成)
+    * [3.2 验证生成的代码](#32-验证生成的代码)
+        * [3.2.1 查看一下集群状态，确保可访问 K8S 集群](#321-查看一下集群状态确保可访问-k8s-集群)
+        * [3.2.2 创建CRD](#322-创建crd)
+        * [3.2.3 安装CRD](#323-安装crd)
+        * [3.2.4 启动控制器](#324-启动控制器)
+    * [3.3 添加编写自定义代码逻辑](#33-添加编写自定义代码逻辑)
+    * [3.4 构建 docker 镜像并发布到 docker registry 中](#34-构建-docker-镜像并发布到-docker-registry-中)
+    * [3.5 部署镜像到集群](#35-部署镜像到集群)
+    * [3.6 删除 CRD](#36-删除-crd)
+
 
 # 一、背景
 
-目前 K8s 上编写自定义的 CRD/Controller 已经是高级玩家的基本技能了。本文档提供基本的使用方法，并一步一步的提供编写过程。
+我们在玩够了 K8S 的基础 worloads (比如：Deployment/DaemonSet/StatefulSet/CronJob 等) 后，发现其还不能满足一些实际的应用场景，比如我们要在 K8S 上管理虚机，首先就得让它知道什么是虚机，虚机长什么样等。这里我比较喜欢叫 `workloads`，虽然我们可以叫 `资源`，也可以叫 `API对象`，但我觉得叫 `工作负载` 可能会更贴合应用场景。
 
-CRD/Controller 的开发方式经历过不同的阶段，从最早的参考 k8s 官方的控制器代码并手动复制，到用 `client-gen` 生成框架代码，到现在使用 `kubebuilder` ，已经非常方便我们完成 CRD/Controller，甚至 Operator 的开发。
+幸运的是，K8S 本身是一个海纳百川的容器编排系统，它提供了丰富的扩展接口 (除了 `CRI`/`CNI`/`CSI` 底层接口及 设备扩展相关的 `Device Plugin` 等外，还包括了我们本文要说的 CRD），有了 `CRD (Custom Resource Definition)`，我们让 K8S 认识我们的 `自定义的资源` 就非常容易了，然后对其实现一些控制逻辑，就可以让 其像控制普通的 pod 副本一样简单了。
+
+目前 K8S 上编写自定义的 CRD/Controller 已经是步入 K8S 高级玩家的基本技能了，一些基础知识在本文中不会展开，这里我只介绍如何从零开始写一个 CRD 及其Controller 。它的开发方式经历过不同的阶段，从最早的参考 K8S 官方的控制器代码并手动复制，到用 `client-gen` 生成框架代码，到现在使用 `kubebuilder` ，已经非常方便我们完成 CRD/Controller，甚至 Operator 的开发（当然 Operator 的开发也有专用的 [operator-sdk](https://github.com/operator-framework/operator-sdk) 开源框架）。
 
 ---
 
-# 二、环境准备
+# 二、环境准备及基本开发流程
 
-但由于中国的网络环境的限制，很多K8s开发依赖的包都无法正常的下载，对此整理出一套容易上手，并且符合未来发展趋势的开发规范出来。
+这节主要分享了一个大概编写 CRD/Controller 的环境准备及基本流程，下节开始写一个 Demo。
+由于中国的网络环境的限制，很多 K8S 开发依赖的包都无法正常的下载，所以我们推荐使用代理 `goproxy.cn` 并采用 `go mod` 方式来实现。
 
 ## 1、Golang 环境搭建
 
-### 1.1 Golang语言版本
-使用的Golang语言版本建议>=1.13, 该版本级以上默认开启Go Module
+### 1.1 Golang 语言版本
 
-### 1.2 Golang环境配置
-以下配置针对1.13及以上版本
-- 推荐打开 `export GO111MODULE=on` 以强制启用 `Go module`，它是目前最新的Golang包依赖管理工具，也是官方推荐，govender，godep等工具已经不建议继续使用
-- 执行： `go env -w GOPROXY=goproxy.cn,direct` 开启代理
-当然我们也可以用开源的 athens 搭建一个公司内部私有的 go proxy 代理进行加速，然后配置成类似如下：
+使用的 Golang 语言版本建议 >=1.13, 该版本级以上默认开启 Go Module
+
+### 1.2 Golang 环境配置
+
+以下配置针对 1.13 及以上版本
+
+- 推荐打开 `export GO111MODULE=on` 以强制启用 `Go module`，它是目前最新的 Golang 包依赖管理工具，也是官方推荐，govender，godep 等工具已经不建议继续使用
+- 执行 `go env -w GOPROXY=goproxy.cn,direct` 开启代理
+
+`go env -w GOPROXY=goproxy.cn,direct`
+
+配置默认从 goproxy.cn 拉去 Go Module 的依赖包，如果不存在走默认的方式，goproxy.cn 是七牛云维护的一个 golang 包代理库，测试下来性能是最好的，可以拉取很多被墙掉的包
+
+当然我们也可以用开源的 [athens](https://github.com/gomods/athens) 搭建一个公司内部私有的 go proxy 代理进行加速，然后将其配置在最前面，类似如下：
+
 `go env -w GOPROXY=http://athens.xxx.com,goproxy.cn,direct`
-配置默认从goproxy.cn拉去Go module的依赖包，如果不存在走默认的方式，goproxy.cn 是七牛云维护的一个golang 包代理库，测试下来性能是最好的，可以拉取很多被墙掉的包
+
 
 ## 2、CRD Controller 开发环境搭建
 
-使用[KubeBuilder](https://book.kubebuilder.io/introduction.html) v2版本，该框架可以方便的生成符合K8s规范的CRD文件和对应的Controller代码。
+使用 [KubeBuilder](https://book.kubebuilder.io/introduction.html) v2 版本，该框架可以方便的生成符合 K8S 规范的 CRD 文件和对应的 Controller 代码，我们只需要实现其调协逻辑即可。
 
 ### 2.1、使用时的一些注意事项
-- 使用是不建议直接在GOPATH的目录下新建项目，建议使用Go Module在该目录下初始化模块，go mod init yourModuleName
-- Controller可用通过Builder上添加自定义的Watches方法来扩展自定义的Watch资源方式
-- 修改DockerFile，以方便国内下载
-  - a. 将FROM golang:1.12.5 as builder 替换成 FROM golang:1.13 as builder
-  - b. 在COPY go.sum 下加上ENV GOPROXY=https://goproxy.cn,direct
-  - c. 将FROM gcr.io/distroless/static:nonroot 替换成 FROM golang:1.13
-  - d. 删除USER nonroot:nonroot
-- 在config/default目录下 kustomization.yaml文件，注释掉 `manager_auth_proxy_patch.yaml`这一行，去掉`manager_prometheus_metrics_patch.yaml`这一行的注释，开启 prometheus 的 metrics 收集
+
+- 使用是不建议直接在 GOPATH 的目录下新建项目，建议使用 Go Module 在该目录下初始化模块，`go mod init yourModuleName`
+- Controller 可用通过 KubeBuilder 上添加自定义的 Watches 方法来扩展自定义的 Watch 资源方式
+- 修改 DockerFile，以方便国内下载
+  - 将 `FROM golang:1.12.5 as builder` 替换成 `FROM golang:1.13 as builder`
+  - 在 `COPY go.sum` 下加上 `ENV GOPROXY=https://goproxy.cn,direct`
+  - 将 `FROM gcr.io/distroless/static:nonroot` 替换成 `FROM golang:1.13`
+  - 删除 `USER nonroot:nonroot`
+
+- 如果需要开启供 prometheus 的 metrics 收集，就需要在 config/default 目录下 kustomization.yaml 文件中，去掉 `manager_prometheus_metrics_patch.yaml` 这一行注释
 
 ## 3、CRD Controller的开发逻辑
 
-一个控制器的实现方式有两种：
+控制器的目的是让 CRD 定义的资源达到我们预期的一个状态，要达到我们定义的状态，我们需要监听触发事件。触发事件的概念是从硬件信号产生 `中断` 的机制衍生过来的，
+其产生一个电平信号时，有水平触发（包括高电平、低电平），也有边缘触发（包括上升沿、下降沿触发等）。
+
 - 水平触发 : 系统仅依赖于当前状态。即使系统错过了某个事件（可能因为故障挂掉了），当它恢复时，依然可以通过查看信号的当前状态来做出正确的响应。
+
 - 边缘触发 : 系统不仅依赖于当前状态，还依赖于过去的状态。如果系统错过了某个事件（“边缘”），则必须重新查看该事件才能恢复系统。
 
-KubeBuilder的控制权实现的接口是Reconcile方法，该方法要求控制器的实现逻辑是基于水平触发的,  实现方不能假定每一次的对象的变更都会触发一次Reconcile，KubeBuilder为性能考虑会合并同一个对象的修改请求，这要求使用方不考虑中间的执行步骤，以面向终态的方式来实现业务逻辑。具体来说每次Status状态的构建都不能依赖过去的值，要求能够完全根据目前的环境的查询来构建值
+Kubernetes 的 API 和控制器都是基于水平触发的，可以促进系统的自我修复和周期调协。
+其 API 实现方式（也是我们常说的声明式 API）是：控制器监视资源对象的实际状态，并与对象期望的状态进行对比，然后调整实际状态，使之与期望状态相匹配。
+
+那 KubeBuilder 原理呢？ 它的控制器实现的接口是 Reconcile 方法，该方法要求控制器的实现逻辑是基于水平触发的, 实现方不能假定每一次的对象的变更都会触发一次 Reconcile。KubeBuilder 为性能考虑会合并同一个对象的修改请求，这要求使用方不考虑中间的执行步骤，以面向终态的方式来实现业务逻辑。具体来说每次资源 Status 状态的构建都不能依赖过去的值，要求能够完全根据目前的环境的查询来构建值。
 
 ## 4、CRD controller的测试与部署
-- 每次修改结构体或者添加KubeBuilder的Marker后需要运行`make install`命令，该命令生成对应的`CRD yaml`文件并将它部署到当前配置的kubernetes环境中
-- 调试时可以使用`make run`命令在本地直接启动controller，该controller连接当前配置的kubernetes的api server
-- 打包镜像使用`make docker-build IMG=<some-registry>/<project-name>:tag`
-- 上传镜像使用`make docker-push IMG=<some-registry>/<project-name>:tag`
-- 部署镜像使用`make deploy IMG=<some-registry>/<project-name>:tag`
 
+- 每次修改结构体或者添加 KubeBuilder 的 Marker 后需要运行 `make install` 命令，该命令生成对应的 `CRD yaml` 文件并将它部署到当前配置的 K8S 环境中
+- 调试时可以使用 `make run` 命令在本地直接启动 Controller，该 Controller 连接当前配置的 K8S API Server
+- 打包并上传镜像使用 `make docker-build docker-push IMG=<some-registry>/<project-name>:tag`
+- 部署镜像使用 `make deploy IMG=<some-registry>/<project-name>:tag`
 
 ---
 
 # 三、演示
+
+这节我们开始编写一个简单的 CRD，并编写其 Controller， 实现简单的调协逻辑。
 
 ## 3.1 构架代码生成
 
 我们现在用 kubebuiler 来生成一个可跑的代码框架。这里演示两种方法，一种是采用 `GOPATH`，另一种是 `go mod`
 
 ### 3.1.1 采用 GOPATH 来生成
+
 ```bash
 chenqiang@Johnny K8S-training$ cd $GOPATH/src
 chenqiang@Johnny example.com$ pwd
@@ -159,7 +182,7 @@ Use "kubebuilder [command] --help" for more information about a command.
 
 ```
 
-上面有大量的信息，我们基本就可以cp过来，并执行一下。
+上面有大量的信息，我们基本就可以 cp 过来，并执行一下。
 
 ```bash
 chenqiang@Johnny src$ kubebuilder init --domain example.com --license apache2 --owner "The Kubernetes authors"
@@ -343,7 +366,7 @@ chenqiang@Johnny example$ tree
 9 directories, 29 files
 ```
 
-这里 kubebuilder 帮我们生成了一下模板文件夹，包括解决 crd 的rbac, certmanager, webhook的文件。
+这里 kubebuilder 帮我们生成了一下模板文件夹，包括解决 crd 的 rbac, certmanager, webhook 的文件。
 
 ### 3.1.2 采用 go mod 来生成
 
@@ -384,9 +407,10 @@ $ kubebuilder create api
 
 现在我们只生成了第一步的代码，我们先来看看这部分代码是否能运行及其效果如何？
 
-这时需要保证你的终端能访问k8s的测试集群，简单就是用kubectl cluster-info看看是否出错，如果不出错，就可以run起来main.go了
+这时需要保证你的终端能访问 K8S 的测试集群，简单就是用 `kubectl cluster-info` 看看是否出错，如果不出错，就可以 `go run main.go` 了
 
-### 3.2.1 查看一下集群状态，确保可访问 k8s 集群
+### 3.2.1 查看一下集群状态，确保可访问 K8S 集群
+
 ```bash
 chenqiang@Johnny kubebuilder-eg[master*]$ ls
 Dockerfile Makefile   PROJECT    bin        config     go.mod     go.sum     hack       main.go
@@ -413,7 +437,7 @@ chenqiang@Johnny kubebuilder-eg[master*]$ go run main.go
 
 ```
 
-从main.go里面可以看出其实kubebuilder帮我们生成一个管理controller的manager的代码，但是还没添加controller（controller是指管理crd的控制器）：
+从 main.go 里面可以看出其实 KubeBuilder 帮我们生成一个管理 Controller 的 Manager 的代码，但是还没添加 Controller
 
 ```go
 func main() {
@@ -434,10 +458,12 @@ func main() {
 
 ### 3.2.2 创建CRD
 
-接下来我们就可以用kubebuilder帮我们创建一个我们想要的crd, 还是按 help 命令给出的来
+接下来我们就可以用 KubeBuilder 帮我们创建一个我们想要的 CRD, 还是按 help 命令给出的来
+
 
 	# Create a frigates API with Group: ship, Version: v1beta1 and Kind: Frigate
 	kubebuilder create api --group ship --version v1beta1 --kind Frigate
+
 
 ```bash
 chenqiang@Johnny kubebuilder-eg[master*]$ kubebuilder create api --group ship --version v1beta1 --kind Frigate
@@ -456,10 +482,10 @@ go build -o bin/manager main.go
 
 ```
 
-这里简单注意一下， group / version / kind 这三个属性组合起来来标识一个 k8s 的 crd。另外就是kind要首字母大写而且不能有特殊符号。
-在创建过程中，我们可以选择让 kubebuilder 来是否生成 Resource / Controller 等。
+这里简单注意一下， `group / version / kind` 这三个属性组合起来来标识一个 K8S 的 CRD。另外就是 `kind` 要首字母大写而且不能有特殊符号。
+在创建过程中，我们可以选择让 KubeBuilder 来是否生成 Resource / Controller 等。
 
-执行上面的命令之后，kubebuilder 就帮我们创建了两个文件 `api/v1/frigate_types.go和controllers/frigate_controller.go`, 前者是这个crd需要定义哪些属性，而后者是对 crd 的 reconcile 的处理逻辑（也就是增删改 crd 的逻辑）, 我们后面再讲这两个文件。最后呢，在 main.go 里面，我们定义的 `Frigate` 对应的 controller 会注册到之前生成的 manager 里：
+执行上面的命令之后，KubeBuilder 就帮我们创建了两个文件 `api/v1/frigate_types.go和controllers/frigate_controller.go`, 前者是这个 CRD 需要定义哪些属性，而后者是对 CRD 的 Reconcile 的处理逻辑（也就是增删改 CRD 的逻辑）, 我们后面再讲这两个文件。最后呢，在 main.go 里面，我们定义的 `Frigate` 对应的 Controller 会注册到之前生成的 Manager 里：
 
 ```go
 function main(){
@@ -475,11 +501,11 @@ function main(){
 ...
 ```
 
-当然，如果我们反复执行`kubebuilder create api xxx`这条命令就会帮我们创建和注册不同的 controller 到 manager 里面。
+当然，如果我们反复执行 `kubebuilder create api xxx` 这条命令就会帮我们创建和注册不同的 Controller 到 Manager 里面。
 
 ### 3.2.3 安装CRD
 
-基于上述步骤生成的代码，我们什么也不做，先来 `make isntall` 一下， 将其安装到 k8s cluster 中。
+基于上述步骤生成的代码，我们什么也不做，先来 `make isntall` 一下， 将其安装到 K8S cluster 中。
 
 ```bash
 chenqiang@Johnny kubebuilder-eg[master*]$ make install
@@ -489,8 +515,8 @@ kustomize build config/crd | kubectl apply -f -
 error: no objects passed to apply
 make: *** [install] Error 1
 ```
-这里因为需要安装 kustomize，我们的 kubebuilder 依赖它来部署。
-按之前提供的部署文档安装好后，再来看看
+这里因为需要安装 kustomize，我们的 KubeBuilder 依赖它来部署。
+按之前提供的部署文档安装好后，再来看看。
 
 ```bash
 chenqiang@Johnny kubebuilder-eg[master*]$ make install
@@ -501,11 +527,13 @@ chenqiang@Johnny kubebuilder-eg[master*]$ kubectl get crd | grep frigate
 frigates.ship.example.com                        2020-05-29T04:26:47Z
 chenqiang@Johnny kubebuilder-eg[master*]$ kubectl get crd frigates.ship.example.com -o yaml
 ```
+
 此时已经将 CRD 安装到集群了。
 
 ### 3.2.4 启动控制器
 
-再本地跑一下 controller / manager
+再本地跑一下 Controller / Manager
+
 ```bash
 chenqiang@Johnny kubebuilder-eg[master*]$ make run
 /Users/chenqiang/go/bin/controller-gen object:headerFile=./hack/boilerplate.go.txt paths="./..."
@@ -525,8 +553,8 @@ go run ./main.go
 
 ## 3.3 添加编写自定义代码逻辑
 
-
 这里可以按你自己的程序进行添加。
+
 首先，我们在 `api/v1beta1/frigate_types.go` 中添加一些自定义的字段，以演示 CRD 部分。
 
 ```git
@@ -579,6 +607,9 @@ go run ./main.go
  }
 
 ```
+
+这里，我们通过 CRD 中定义的 `Created` 字段的 `Status` 来判断其是否为新创建来对其进行调协处理。
+
 最后，为了不开启代理受权，但开启 promethues 监控，我们修改 `config/default/kustomization.yaml`
 
 ```git
@@ -599,6 +630,7 @@ go run ./main.go
 +- manager_prometheus_metrics_patch.yaml
 
 ```
+
 完成后，我们重新在本地进行 `make install`, `make run`。
 若没有问题，我们就可以进行接下来的步骤了。
 
@@ -677,9 +709,3 @@ $ docker tag kubesphere/kube-rbac-proxy:v0.4.1 gcr.io/kubebuilder/kube-rbac-prox
 ## 3.6 删除 CRD
 
 执行 `make uninstall` 即可
-
-
-
-
-
-
